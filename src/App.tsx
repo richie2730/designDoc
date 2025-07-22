@@ -1,159 +1,136 @@
-import React, { useState } from 'react';
-import { RepositoryInput } from './components/RepositoryInput';
-import { DesignDocumentViewer } from './components/DesignDocumentViewer';
-import { ExportPanel } from './components/ExportPanel';
-import { CustomPromptPanel } from './components/CustomPromptPanel';
-import { Toast } from './components/Toast';
-
-interface DocumentData {
-  hld: string;
-  lld: string;
-  diagrams: {
-    architecture: string;
-    sequence: string;
-    class: string;
-  };
-}
+import React, { useState, useEffect } from 'react';
+import Header from './components/Header';
+import AnalysisForm from './components/AnalysisForm';
+import Sidebar from './components/Sidebar';
+import DocumentContent from './components/DocumentContent';
+import ExportButtons from './components/ExportButtons';
+import { RepoAnalysisRequest, AnalysisResult, SidebarDocument } from './types';
+import { analyzeRepository, getAnalyzedDocuments, getDocumentById } from './services/api';
 
 function App() {
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [isExporting, setIsExporting] = useState(false);
-  const [documentData, setDocumentData] = useState<DocumentData | null>(null);
-  const [isPromptPanelOpen, setIsPromptPanelOpen] = useState(false);
-  const [toast, setToast] = useState<{
-    message: string;
-    type: 'success' | 'error';
-    isVisible: boolean;
-  }>({ message: '', type: 'success', isVisible: false });
+  const [documents, setDocuments] = useState<SidebarDocument[]>([]);
+  const [selectedDocument, setSelectedDocument] = useState<string | null>(null);
+  const [currentDocument, setCurrentDocument] = useState<AnalysisResult | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [showForm, setShowForm] = useState(true);
 
-  const showToast = (message: string, type: 'success' | 'error') => {
-    setToast({ message, type, isVisible: true });
-  };
+  useEffect(() => {
+    loadDocuments();
+  }, []);
 
-  const hideToast = () => {
-    setToast(prev => ({ ...prev, isVisible: false }));
-  };
-
-  const handleGenerate = async (url: string) => {
-    setIsGenerating(true);
-    
+  const loadDocuments = async () => {
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      
-      // Mock data
-      const mockData: DocumentData = {
-        hld: "This system follows a microservices architecture with React frontend, Node.js backend, and PostgreSQL database. The main components include user authentication, data processing, and API gateway services. The system is designed for scalability and maintainability with clear separation of concerns.",
-        lld: "The application consists of several key classes: UserService (handles authentication and user management), DataProcessor (processes incoming data), APIGateway (routes requests), and DatabaseManager (handles data persistence). Each class follows SOLID principles and implements proper error handling.",
-        diagrams: {
-          architecture: `graph TD
-    A[Frontend - React] --> B[API Gateway]
-    B --> C[Auth Service]
-    B --> D[Data Service]
-    B --> E[User Service]
-    C --> F[Database]
-    D --> F
-    E --> F`,
-          sequence: `sequenceDiagram
-    participant U as User
-    participant F as Frontend
-    participant A as API Gateway
-    participant S as Service
-    participant D as Database
-    
-    U->>F: Login Request
-    F->>A: POST /auth/login
-    A->>S: Authenticate
-    S->>D: Query User
-    D-->>S: User Data
-    S-->>A: JWT Token
-    A-->>F: Response
-    F-->>U: Dashboard`,
-          class: `classDiagram
-    class User {
-        +id: string
-        +email: string
-        +password: string
-        +createdAt: Date
-        +authenticate()
-        +updateProfile()
-    }
-    
-    class UserService {
-        +createUser()
-        +loginUser()
-        +updateUser()
-        +deleteUser()
-    }
-    
-    User --> UserService`
-        }
-      };
-      
-      setDocumentData(mockData);
-      showToast('Design generation completed!', 'success');
+      const docs = await getAnalyzedDocuments();
+      const sidebarDocs: SidebarDocument[] = docs.map(doc => ({
+        id: doc.id,
+        repoName: doc.repoName,
+        analyzedAt: doc.analyzedAt,
+      }));
+      setDocuments(sidebarDocs);
     } catch (error) {
-      showToast('Failed to generate design document. Please try again.', 'error');
-    } finally {
-      setIsGenerating(false);
+      console.error('Failed to load documents:', error);
     }
   };
 
-  const handleExport = async (format: 'pdf' | 'markdown' | 'docx') => {
-    setIsExporting(true);
-    
+  const handleAnalyze = async (request: RepoAnalysisRequest) => {
+    setIsLoading(true);
     try {
-      // Simulate export process
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      const fileName = `design-document.${format}`;
-      showToast(`Document exported as ${fileName}`, 'success');
+      const result = await analyzeRepository(request);
+      setCurrentDocument(result);
+      setSelectedDocument(result.id);
+      setShowForm(false);
+      await loadDocuments();
+      setSidebarOpen(false);
     } catch (error) {
-      showToast('Export failed. Please try again.', 'error');
+      console.error('Analysis failed:', error);
     } finally {
-      setIsExporting(false);
+      setIsLoading(false);
     }
+  };
+
+  const handleSelectDocument = async (id: string) => {
+    try {
+      const doc = await getDocumentById(id);
+      setCurrentDocument(doc);
+      setSelectedDocument(id);
+      setShowForm(false);
+      setSidebarOpen(false);
+    } catch (error) {
+      console.error('Failed to load document:', error);
+    }
+  };
+
+  const handleNewAnalysis = () => {
+    setShowForm(true);
+    setCurrentDocument(null);
+    setSelectedDocument(null);
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-      <div className="container mx-auto px-4 py-8">
-        <div className="max-w-6xl mx-auto">
-          <header className="text-center mb-8">
-            <h1 className="text-4xl font-bold text-gray-800 mb-2">
-              Design Document Generator
-            </h1>
-            <p className="text-gray-600 text-lg">
-              Transform your GitHub repositories into comprehensive design documents
-            </p>
-          </header>
+    <div className="min-h-screen bg-gray-50">
+      <Header />
+      
+      <div className="flex">
+        <Sidebar
+          documents={documents}
+          selectedDocument={selectedDocument}
+          onSelectDocument={handleSelectDocument}
+          isOpen={sidebarOpen}
+          onToggle={() => setSidebarOpen(!sidebarOpen)}
+        />
 
-          <RepositoryInput onGenerate={handleGenerate} isLoading={isGenerating} />
-          
-          <CustomPromptPanel 
-            isOpen={isPromptPanelOpen} 
-            onToggle={() => setIsPromptPanelOpen(!isPromptPanelOpen)} 
-          />
+        <main className="flex-1 lg:ml-0">
+          <div className="max-w-4xl mx-auto p-6 space-y-6">
+            {showForm && (
+              <>
+                <div className="text-center mb-8">
+                  <h1 className="text-3xl font-bold text-gray-900 mb-2">
+                    Design Documentation Generator
+                  </h1>
+                  <p className="text-gray-600">
+                    Analyze your GitHub repositories and generate comprehensive design documentation
+                  </p>
+                </div>
+                <AnalysisForm onSubmit={handleAnalyze} isLoading={isLoading} />
+              </>
+            )}
 
-          {documentData && (
-            <>
-              <DesignDocumentViewer
-                hldContent={documentData.hld}
-                lldContent={documentData.lld}
-                diagrams={documentData.diagrams}
-              />
-              
-              <ExportPanel onExport={handleExport} isExporting={isExporting} />
-            </>
-          )}
+            {currentDocument && (
+              <>
+                <div className="flex justify-between items-center">
+                  <h2 className="text-xl font-semibold text-gray-900">
+                    Documentation
+                  </h2>
+                  <button
+                    onClick={handleNewAnalysis}
+                    className="px-4 py-2 text-sm font-medium text-blue-600 hover:text-blue-800"
+                  >
+                    + New Analysis
+                  </button>
+                </div>
+                
+                <div className="document-content">
+                  <DocumentContent document={currentDocument} />
+                </div>
+                
+                <ExportButtons document={currentDocument} />
+              </>
+            )}
 
-          <Toast
-            message={toast.message}
-            type={toast.type}
-            isVisible={toast.isVisible}
-            onClose={hideToast}
-          />
-        </div>
+            {!showForm && !currentDocument && (
+              <div className="text-center py-12">
+                <p className="text-gray-500 mb-4">Select a document from the sidebar or</p>
+                <button
+                  onClick={handleNewAnalysis}
+                  className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  Start New Analysis
+                </button>
+              </div>
+            )}
+          </div>
+        </main>
       </div>
     </div>
   );
